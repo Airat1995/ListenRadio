@@ -4,5 +4,5 @@
   <string name="Stop">Stop radio</string>
   <string name="Pause">Pause radio</string>
   <string name="ApplicationName">ListenRadio</string>
-  <string name="RadioUrl">http://5.9.135.213:8000/play</string>
+  <string name="RadioUrl">http://stream.sunlife-fm.org:8000/sunlife</string>
 </resources>

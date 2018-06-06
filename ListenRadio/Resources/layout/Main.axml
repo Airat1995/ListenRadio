@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:id="@+id/linearLayout1">
     <ImageView
-        android:src="@android:drawable/ic_menu_gallery"
+        android:src="@drawable/banner"
         android:layout_width="fill_parent"
         android:layout_height="180dp"
         android:scaleType="fitCenter"

@@ -13,7 +13,8 @@ using System.Threading.Tasks;
 
 namespace ListenRadio
 {
-    [Activity(Label = "ListenRadio", MainLauncher = true, Icon = "@drawable/icon", ConfigurationChanges = Android.Content.PM.ConfigChanges.KeyboardHidden | Android.Content.PM.ConfigChanges.Keyboard | Android.Content.PM.ConfigChanges.Orientation | Android.Content.PM.ConfigChanges.ScreenSize)]
+    [Activity(Label = "ListenRadio", MainLauncher = true, Icon = "@drawable/Banner", 
+        ConfigurationChanges = Android.Content.PM.ConfigChanges.KeyboardHidden | Android.Content.PM.ConfigChanges.Keyboard | Android.Content.PM.ConfigChanges.Orientation | Android.Content.PM.ConfigChanges.ScreenSize)]
     public class MainActivity : Activity
     {
         /// <summary>
@@ -33,7 +34,6 @@ namespace ListenRadio
 
             Button playButton = FindViewById<Button>(Resource.Id.PlayButton);
             Button stopButton = FindViewById<Button>(Resource.Id.StopButton);
-            Button pauseButton = FindViewById<Button>(Resource.Id.StopButton);
 
             playButton.Click += delegate { SendAudioCommand(StreamService.ActionPlay); };
             stopButton.Click += delegate { SendAudioCommand(StreamService.ActionStop); };
@@ -42,9 +42,8 @@ namespace ListenRadio
             infoTextView = FindViewById<TextView>(Resource.Id.InfoTextView);
             MakeRequest();
             //TODO: make service delete this!!
-            System.Timers.Timer t = new System.Timers.Timer();
-            t.Interval = 5000;
-            t.Elapsed += new System.Timers.ElapsedEventHandler(UpdateSourceData);
+            System.Timers.Timer t = new System.Timers.Timer {Interval = 5000};
+            t.Elapsed += UpdateSourceData;
             t.Start();
 
         }

@@ -10,8 +10,11 @@ using Android.Net;
 using Android.Net.Wifi;
 using Android.OS;
 using Android.Runtime;
+using Android.Util;
 using Android.Views;
 using Android.Widget;
+using Java.IO;
+using Console = System.Console;
 
 namespace ListenRadio
 {
@@ -25,20 +28,22 @@ namespace ListenRadio
 
         private string _radio;
 
-        private MediaPlayer player;
-        private AudioManager audioManager;
-        private WifiManager wifiManager;
-        private WifiManager.WifiLock wifiLock;
-        private bool paused;
+        private MediaPlayer _player;
+        private AudioManager _audioManager;
+        private WifiManager _wifiManager;
+        private WifiManager.WifiLock _wifiLock;
+        private NotificationManager _notificationManager;
+        private bool _paused;
 
         private const int NotificationId = 1;
 
         public override void OnCreate()
         {
             base.OnCreate();
-            audioManager = (AudioManager)GetSystemService(AudioService);
-            wifiManager = (WifiManager)GetSystemService(WifiService);
+            _audioManager = (AudioManager)GetSystemService(AudioService);
+            _wifiManager = (WifiManager)GetSystemService(WifiService);
             _radio = GetString(Resource.String.RadioUrl);
+            _notificationManager = GetSystemService(NotificationService) as NotificationManager;
         }
 
         public override IBinder OnBind(Intent intent)
@@ -48,7 +53,6 @@ namespace ListenRadio
 
         public override StartCommandResult OnStartCommand(Intent intent, StartCommandFlags flags, int startId)
         {
-
             switch (intent.Action)
             {
                 case ActionPlay: Play(); break;
@@ -61,17 +65,15 @@ namespace ListenRadio
 
         private void IntializePlayer()
         {
-            player = new MediaPlayer();
+            _player = new MediaPlayer();
+            
+            _player.SetWakeMode(ApplicationContext, WakeLockFlags.Partial);
 
-            player.SetAudioStreamType(Stream.Music);
-        
-            player.SetWakeMode(ApplicationContext, WakeLockFlags.Partial);
+            _player.Prepared += (sender, args) => _player.Start();
 
-            player.Prepared += (sender, args) => player.Start();
+            _player.Completion += (sender, args) => Stop();
 
-            player.Completion += (sender, args) => Stop();
-
-            player.Error += (sender, args) =>
+            _player.Error += (sender, args) =>
             {
                 //playback error
                 Console.WriteLine("Error in playback resetting: " + args.What);
@@ -81,42 +83,52 @@ namespace ListenRadio
 
         private async void Play()
         {
-
-            if (paused && player != null)
+            if (_paused && _player != null)
             {
-                paused = false;
-                player.Start();
+                _paused = false;
+                _player.Start();
                 StartForeground();
                 return;
             }
 
-            if (player == null)
+            if (_player == null)
             {
                 IntializePlayer();
             }
 
-            if (player.IsPlaying)
+            if (_player.IsPlaying)
                 return;
 
             try
             {
-                await player.SetDataSourceAsync(ApplicationContext, Android.Net.Uri.Parse(_radio));
-
-                var focusResult = audioManager.RequestAudioFocus(this, Stream.Music, AudioFocus.Gain);
-                if (focusResult != AudioFocusRequest.Granted)
+                await _player.SetDataSourceAsync(ApplicationContext, Android.Net.Uri.Parse(_radio));
+                AudioFocusRequest audioFocusRequest;
+                if (Build.VERSION.SdkInt > BuildVersionCodes.O)
+                {
+                    audioFocusRequest = _audioManager.RequestAudioFocus(new AudioFocusRequestClass.Builder(AudioFocus.Gain)
+                        .SetAudioAttributes(new AudioAttributes.Builder().SetLegacyStreamType(Stream.Music).Build())
+                        .SetOnAudioFocusChangeListener(this)
+                        .Build());
+                }
+                else
+                {
+                    audioFocusRequest = _audioManager.RequestAudioFocus(this, Stream.Music, AudioFocus.Gain);
+                }
+                if (audioFocusRequest != AudioFocusRequest.Granted)
                 {
                     //could not get audio focus
-                    Console.WriteLine("Could not get audio focus");
+                    Log.Error("Stream Service", "Could not get audio focus");
+                    throw new StreamCorruptedException("Could not get audio focus");
                 }
 
-                player.PrepareAsync();
+                _player.PrepareAsync();
                 AquireWifiLock();
                 StartForeground();
             }
             catch (Exception ex)
             {
                 //unable to start playback log error
-                Console.WriteLine("Unable to start playback: " + ex);
+                Log.Error("Stream Service", "Unable to start playback: " + ex);
             }
         }
 
@@ -132,72 +144,68 @@ namespace ListenRadio
             .SetContentText("Radio is playing")
             .SetContentTitle("Listen Radio")
             .SetContentIntent(pendingIntent)
-            .SetSmallIcon(Resource.Drawable.Icon)
+            .SetSmallIcon(Resource.Drawable.Banner)
             .SetOngoing(true);
             Notification notification = builder.Build();
 
             //Init notification manager and show notification
-            NotificationManager notificationManager =
-                GetSystemService(Context.NotificationService) as NotificationManager;
-            notificationManager.Notify(NotificationId, notification);
+            _notificationManager?.Notify(NotificationId, notification);
 
         }
 
         //Pause, can use it if you want
         private void Pause()
         {
-            if (player == null)
+            if (_player == null)
                 return;
-
-            if (player.IsPlaying)
-                player.Pause();
+            if (_player.IsPlaying)
+                _player.Pause();
 
             StopForeground(true);
-            paused = true;
+            _paused = true;
         }
 
         //Stop
         private void Stop()
         {
-            if (player == null)
+            if (_player == null)
                 return;
 
-            if (player.IsPlaying)
-                player.Stop();
+            if (_player.IsPlaying)
+                _player.Stop();
 
-            player.Reset();
-            paused = false;
+            _player.Reset();
+            _paused = false;
             StopForeground(true);
             ReleaseWifiLock();
+            _notificationManager.Cancel(NotificationId);
         }
 
         //Wifi lockers, when device go to sleep still play streaming
         private void AquireWifiLock()
         {
-            if (wifiLock == null)
+            if (_wifiLock == null)
             {
-                wifiLock = wifiManager.CreateWifiLock(WifiMode.Full, "xamarin_wifi_lock");
+                _wifiLock = _wifiManager.CreateWifiLock(WifiMode.Full, "xamarin_wifi_lock");
             }
-            wifiLock.Acquire();
+            _wifiLock.Acquire();
         }
 
         private void ReleaseWifiLock()
         {
-            if (wifiLock == null)
+            if (_wifiLock == null)
                 return;
 
-            wifiLock.Release();
-            wifiLock = null;
+            _wifiLock.Release();
+            _wifiLock = null;
         }
 
         public override void OnDestroy()
         {
             base.OnDestroy();
-            if (player != null)
-            {
-                player.Release();
-                player = null;
-            }
+            if (_player == null) return;
+            _player.Release();
+            _player = null;
         }
 
 
@@ -210,16 +218,14 @@ namespace ListenRadio
             switch (focusChange)
             {
                 case AudioFocus.Gain:
-                    if (player == null)
+                    if (_player == null)
                         IntializePlayer();
-
-                    if (!player.IsPlaying)
+                    if (!_player.IsPlaying)
                     {
-                        player.Start();
-                        paused = false;
+                        _player.Start();
+                        _paused = false;
                     }
-
-                    player.SetVolume(1.0f, 1.0f);//Turn it up!
+                    _player.SetVolume(1.0f, 1.0f);//Turn it up!
                     break;
                 case AudioFocus.Loss:
                     //We have lost focus stop!
@@ -229,8 +235,8 @@ namespace ListenRadio
                     Pause();
                     break;
                 case AudioFocus.LossTransientCanDuck:
-                    if (player.IsPlaying)
-                        player.SetVolume(.1f, .1f);//turn it down!
+                    if (_player.IsPlaying)
+                        _player.SetVolume(.1f, .1f);//turn it down!
                     break;
 
             }
